@@ -1,61 +1,87 @@
-# coronel.wallpaper-grid
+# Wallpaper Engine Grid
 
-Selector en **cuadrícula (grid)** para Wallpaper Engine en Omarchy. Reemplaza el carrusel horizontal por un grid real con búsqueda, etiquetas, favoritos, récents y atajos de teclado.
+A real **wrapping grid picker** for Wallpaper Engine on Omarchy. Replaces the horizontal carousel with a searchable, filterable grid of thumbnails — favorites, recents, tags, and keyboard navigation included.
 
-## Requisitos previos
+## Features
 
-- **Omarchy** instalado y funcionando
-- **omarchy-we** CLI (plugin oficial de Omarchy para Wallpaper Engine)
-- **linux-wallpaperengine** con wallpapers de Steam Workshop
-- **Steam Workshop** con contenido descargado en `~/.local/share/Steam/steamapps/workshop/content/431960/`
-- **ImageMagick** (comando `magick`) para generar miniaturas
+- **Grid layout** (not a horizontal carousel) with 3–7 adaptive columns
+- **Fuzzy search** by title and tags
+- **Filter chips**: All, ★ Favorites, Recent, scene/video/web, and top tags (Anime, Game, Cyberpunk, etc.)
+- **Favorites** with `Ctrl+F`, persisted across sessions
+- **Recents** sorted by last use
+- **Apply wallpaper** with `Enter` using `omarchy-we set`
+- **Stop live wallpaper** with `Delete`
+- **Random wallpaper** with `Ctrl+R`
+- **Live badge** on the currently active wallpaper
+- **Selection highlight** with accent border on the focused card
+- **Hover effects** on cards and chips
+- **Empty state** and loading indicators
+- **Themed colors** — adapts to your Omarchy theme
+- **Close** with `Esc`, `SUPER+W`, the ✕ button, or clicking outside
 
-## Instalación
+## Requirements
+
+- **Omarchy** installed and running
+- **omarchy-we** CLI (Omarchy's official Wallpaper Engine plugin)
+- **linux-wallpaperengine** with Steam Workshop wallpapers
+- **Steam Workshop** content downloaded in `~/.local/share/Steam/steamapps/workshop/content/431960/`
+- **ImageMagick** (`magick` command) for thumbnail generation
+
+## Installation
 
 ```bash
-# 1. Clona el repo dentro de tus plugins de Omarchy
+# 1. Clone into your Omarchy plugins folder
 git clone https://github.com/Angel-p-v/wallpaper-grid.git \
   ~/.config/omarchy/plugins/coronel.wallpaper-grid
 
-# 2. Habilita el plugin
+# 2. Enable the plugin
 omarchy plugin enable coronel.wallpaper-grid
 
-# 3. Genera las miniaturas (primera vez, puede tardar)
+# 3. Generate thumbnails (first run, may take a while)
 ~/.config/omarchy/plugins/coronel.wallpaper-grid/we-grid-data thumbs
 
-# 4. Abre el selector
+# 4. Open the picker
 omarchy-shell shell summon coronel.wallpaper-grid '{}'
 ```
 
-## Atajo de teclado sugerido
+## Keyboard shortcut (recommended)
 
-En `~/.config/hypr/bindings.lua` (o tu gestor de binds):
+Add this to your `~/.config/hypr/bindings.lua`:
 
 ```lua
 o.bind("SUPER + SHIFT + Z", "Wallpaper Engine grid", "omarchy-shell shell summon coronel.wallpaper-grid '{}'")
 ```
 
-## Atajos dentro del grid
+## Shortcuts inside the grid
 
-| Acción | Tecla |
-|--------|-------|
-| Abrir el grid | `SUPER + SHIFT + Z` |
-| Cerrar | `SUPER + W` / `Esc` / ✕ / clic fuera |
-| Buscar | escribe título o etiqueta |
-| Navegar | flechas / ratón |
-| Aplicar | `Enter` |
-| Fav/Desfav | `Ctrl + F` |
-| Aleatorio | `Ctrl + R` |
-| Parar live wallpaper | `Supr` |
+| Action | Key |
+|--------|-----|
+| Open grid | `SUPER + SHIFT + Z` |
+| Close grid | `SUPER + W` / `Esc` / ✕ / click outside |
+| Search | type title or tag |
+| Navigate | arrow keys / mouse |
+| Apply wallpaper | `Enter` |
+| Favorite / Unfavorite | `Ctrl + F` |
+| Random wallpaper | `Ctrl + R` |
+| Stop live wallpaper | `Delete` |
 
-## Qué NO se toca
+## What is NOT touched
 
-- Nada en `/usr/share/omarchy/` (sistema intacto)
-- Nada en `~/omarchy-wallpaper-engine/` (plugin original sin modificar)
-- El renderer `linux-wallpaperengine`, el autostart y el hook de tema-sigue siguen igual
+- Nothing in `/usr/share/omarchy/` (system untouched)
+- Nothing in `~/omarchy-wallpaper-engine/` (original plugin unmodified)
+- The `linux-wallpaperengine` renderer, autostart, and theme-follow hook remain unchanged
 
-## Limitaciones
+## Limitations
 
-- Solo **Linux** (depende de `linux-wallpaperengine` y rutas de Steam)
-- Requiere **Omarchy** + `omarchy-we`
-- Las miniaturas se generan localmente con `magick`
+- **Linux only** — depends on `linux-wallpaperengine` and Steam Workshop paths
+- Requires **Omarchy** + `omarchy-we`
+- Thumbnails are generated locally with ImageMagick (`magick`)
+
+## Data & state
+
+- Favorites & history: `~/.local/state/we-grid/`
+- Thumbnails: `~/.cache/we-grid/thumbs/`
+
+## License
+
+MIT
