@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+# we-grid-data — data and state helper for the Wallpaper Engine grid picker.
+#
+#   we-grid-data data          JSON array for the picker
+#   we-grid-data thumbs        generate missing thumbnails (background)
+#   we-grid-data fav <id>      add a wallpaper to favorites
+#   we-grid-data unfav <id>    remove a wallpaper from favorites
+#   we-grid-data touch <id>    record a wallpaper as recently used
+#
+# State lives in $XDG_STATE_HOME/we-grid (favorites, history). Thumbnails are
+# cached in $XDG_CACHE_HOME/we-grid/thumbs. Nothing outside those two dirs is
+# written; the omarchy-we state file is only read.
+
+set -euo pipefail
+
+SELF_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/we-grid"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/we-grid/thumbs"
+WORKSHOP="${WE_WORKSHOP:-$HOME/.local/share/Steam/steamapps/workshop/content/431960}"
+CURRENT_FILE="${WE_CURRENT_FILE:-$HOME/.local/state/omarchy-we/current}"
+
+mkdir -p "$STATE_DIR" "$CACHE_DIR"
+
+case "${1:-data}" in
+  data)
+    WE_WORKSHOP="$WORKSHOP" WE_CACHE="$CACHE_DIR" WE_STATE="$STATE_DIR" \
+      WE_CURRENT_FILE="$CURRENT_FILE" python3 - <<'PY'
+import json, os
+
+root = os.environ["WE_WORKSHOP"]
+cache = os.environ["WE_CACHE"]
+state = os.environ["WE_STATE"]
+current_file = os.environ["WE_CURRENT_FILE"]
+EXTS = ("jpg", "jpeg", "png", "gif", "bmp", "webp")
+
+
+def lines(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return [line.strip() for line in fh if line.strip()]
+    except OSError:
+        return []
+
+
+favorites = set(lines(os.path.join(state, "favorites")))
+history = lines(os.path.join(state, "history"))
+current = ""
+try:
+    with open(current_file, encoding="utf-8") as fh:
+        current = fh.read().strip()
+except OSError:
+    pass
+
+out = []
+if os.path.isdir(root):
+    for entry in os.scandir(root):
+        if not entry.is_dir():
+            continue
+        project = os.path.join(entry.path, "project.json")
+        kind, title, preview, tags = "?", entry.name, None, []
+        if os.path.isfile(project):
+            try:
+                with open(project, encoding="utf-8", errors="replace") as fh:
+                    data = json.load(fh)
+                kind = str(data.get("type", "?")).lower()
+                title = str(data.get("title", "")).strip() or entry.name
+                tags = [str(t) for t in (data.get("tags") or []) if str(t).strip()]
+                rel = str(data.get("preview", "")).strip()
+                if rel and os.path.isfile(os.path.join(entry.path, rel)):
+                    preview = os.path.join(entry.path, rel)
+            except Exception:
+                pass
+        if not preview:
+            import glob
+            candidates = sorted(
+                path for path in glob.glob(os.path.join(entry.path, "preview.*"))
+                if path.rsplit(".", 1)[-1].lower() in EXTS
+            )
+            preview = candidates[0] if candidates else None
+        if not preview:
+            continue
+        thumb = os.path.join(cache, entry.name + ".webp")
+        out.append({
+            "id": entry.name,
+            "title": title,
+            "type": kind,
+            "tags": tags,
+            "preview": preview,
+            "thumb": thumb if os.path.isfile(thumb) else "",
+            "current": entry.name == current,
+            "favorite": entry.name in favorites,
+            "recentRank": history.index(entry.name) if entry.name in history else -1,
+        })
+
+json.dump(out, __import__("sys").stdout, ensure_ascii=False)
+PY
+    # Missing thumbnails are built in the background so the picker opens fast;
+    # the next open uses them.
+    setsid -f "$SELF_DIR/we-grid-data" thumbs >/dev/null 2>&1 || true
+    ;;
+
+  thumbs)
+    WE_WORKSHOP="$WORKSHOP" WE_CACHE="$CACHE_DIR" python3 - <<'PY'
+import fcntl, glob, os, subprocess
+
+root = os.environ["WE_WORKSHOP"]
+cache = os.environ["WE_CACHE"]
+EXTS = ("jpg", "jpeg", "png", "gif", "bmp", "webp")
+lock_path = os.path.join(cache, ".lock")
+
+with open(lock_path, "w") as lock:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise SystemExit(0)  # another worker is already on it
+
+    if not os.path.isdir(root):
+        raise SystemExit(0)
+
+    for entry in os.scandir(root):
+        if not entry.is_dir():
+            continue
+        out = os.path.join(cache, entry.name + ".webp")
+        if os.path.isfile(out):
+            continue
+        preview = None
+        project = os.path.join(entry.path, "project.json")
+        if os.path.isfile(project):
+            try:
+                import json
+                with open(project, encoding="utf-8", errors="replace") as fh:
+                    rel = str(json.load(fh).get("preview", "")).strip()
+                if rel and os.path.isfile(os.path.join(entry.path, rel)):
+                    preview = os.path.join(entry.path, rel)
+            except Exception:
+                pass
+        if not preview:
+            candidates = sorted(
+                path for path in glob.glob(os.path.join(entry.path, "preview.*"))
+                if path.rsplit(".", 1)[-1].lower() in EXTS
+            )
+            preview = candidates[0] if candidates else None
+        if not preview:
+            continue
+        subprocess.run(
+            ["magick", preview + "[0]", "-strip", "-thumbnail", "480x270^",
+             "-gravity", "center", "-extent", "480x270", "-quality", "82", out],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+        )
+PY
+    ;;
+
+  fav)
+    id="${2:-}"; [[ -n $id ]] || exit 2
+    touch "$STATE_DIR/favorites"
+    grep -qxF "$id" "$STATE_DIR/favorites" || printf '%s\n' "$id" >> "$STATE_DIR/favorites"
+    ;;
+
+  unfav)
+    id="${2:-}"; [[ -n $id ]] || exit 2
+    if [[ -f $STATE_DIR/favorites ]]; then
+      grep -vxF "$id" "$STATE_DIR/favorites" > "$STATE_DIR/favorites.tmp" || true
+      mv -f "$STATE_DIR/favorites.tmp" "$STATE_DIR/favorites"
+    fi
+    ;;
+
+  touch)
+    id="${2:-}"; [[ -n $id ]] || exit 2
+    { printf '%s\n' "$id"; grep -vxF "$id" "$STATE_DIR/history" 2>/dev/null || true; } \
+      | head -40 > "$STATE_DIR/history.tmp"
+    mv -f "$STATE_DIR/history.tmp" "$STATE_DIR/history"
+    ;;
+
+  *)
+    echo "usage: we-grid-data {data|thumbs|fav <id>|unfav <id>|touch <id>}" >&2
+    exit 2
+    ;;
+esac

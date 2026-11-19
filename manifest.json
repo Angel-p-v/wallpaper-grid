@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "coronel.wallpaper-grid",
+  "name": "Wallpaper Engine Grid",
+  "version": "1.0.0",
+  "author": "coronel",
+  "license": "MIT",
+  "description": "Grid picker for Wallpaper Engine workshop wallpapers: search, tags, favorites, recents",
+  "kinds": [
+    "overlay"
+  ],
+  "entryPoints": {
+    "overlay": "Grid.qml"
+  }
+}
