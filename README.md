@@ -14,7 +14,7 @@ Selector en **cuadrícula (grid)** para Wallpaper Engine en Omarchy. Reemplaza e
 
 ```bash
 # 1. Clona el repo dentro de tus plugins de Omarchy
-git clone https://github.com/Angel-p-v/coronel.wallpaper-grid.git \
+git clone https://github.com/Angel-p-v/wallpaper-grid.git \
   ~/.config/omarchy/plugins/coronel.wallpaper-grid
 
 # 2. Habilita el plugin
