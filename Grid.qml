@@ -2,7 +2,6 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
-import QtQuick.Controls
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
@@ -32,15 +31,11 @@ Item {
   property bool cursorActive: false
   property string notice: ""
   property string currentId: ""
-  property string selectedWallpaperId: ""
-  property bool propertiesPanelOpen: false
-  property var wallpaperProperties: {}
-  property var customProps: {}
 
   property color background: Commons.Color.menu.background
   property color foreground: Commons.Color.menu.text
   property color border: Commons.Color.menu.border
-  property var borderSpec: Border.surfaceSpec("menu", "border", border, Math.max(1, Style.space(2)))
+  property int borderWidth: Math.max(1, Style.space(2))
   property color scrim: Commons.Color.menu.scrim
   property color selectedBackground: Commons.Color.menu.selectedBackground
   property color selectedText: Commons.Color.menu.selectedText
@@ -65,6 +60,7 @@ Item {
 
   function open(payload) {
     root.opened = true
+    panel.shown = true
     root.filterText = ""
     root.chip = "all"
     root.cursorActive = true
@@ -269,7 +265,6 @@ Item {
   function applyIndex(index) {
     if (index < 0 || index >= model.count) return
     var id = String(model.get(index).wid)
-    root.selectedWallpaperId = id
     root.dismiss()
     Quickshell.execDetached([root.weBin, "set", id])
     Quickshell.execDetached(["bash", root.pluginDir + "/we-grid-data", "touch", id])
@@ -303,140 +298,6 @@ Item {
     Quickshell.execDetached([root.weBin, "stop"])
   }
 
-  // ---- propiedades del wallpaper -------------------------------------------
-  function openProperties(id) {
-    var item = null
-    for (var i = 0; i < root.items.length; i++) {
-      if (String(root.items[i].id) === id) { item = root.items[i]; break }
-    }
-    if (!item) return
-    root.propertiesPanelOpen = true
-    root.loadWallpaperPropsForItem(item)
-  }
-
-  function closeProperties() {
-    root.propertiesPanelOpen = false
-    root.wallpaperProperties = {}
-    root.customProps = {}
-  }
-
-  function loadWallpaperPropsForItem(item) {
-    var wid = String(item.id)
-    var project = root.pluginDir + "/../"  // no, usamos ruta directa al workshop
-    var workshop = Quickshell.env("HOME") + "/.local/share/Steam/steamapps/workshop/content/431960/" + wid + "/project.json"
-    propsProc.command = ["cat", workshop]
-    propsProc.running = true
-    // también cargar valores personalizados guardados
-    loadCustomProc.command = ["bash", root.pluginDir + "/we-grid-data", "prop", wid, "get"]
-    loadCustomProc.running = true
-  }
-
-  function loadWallpaperProperties(raw) {
-    try {
-      var data = JSON.parse(raw)
-      var props = data.general && data.general.properties ? data.general.properties : {}
-      root.wallpaperProperties = props
-    } catch (e) {
-      root.wallpaperProperties = {}
-    }
-  }
-
-  function loadCustomProps(raw) {
-    try {
-      var data = JSON.parse(raw)
-      root.customProps = data
-    } catch (e) {
-      root.customProps = {}
-    }
-  }
-
-  function propValue(key) {
-    // valor personalizado del usuario tiene prioridad, luego el valor por defecto del project.json
-    if (root.customProps && root.customProps.hasOwnProperty(key))
-      return root.customProps[key]
-    var def = root.wallpaperProperties[key]
-    return def ? def.value : null
-  }
-
-  function setCustomProp(key, value) {
-    root.customProps[key] = value
-    propSaveProc.command = ["bash", root.pluginDir + "/we-grid-data", "prop",
-                 String(root.selectedWallpaperId), "set", key, JSON.stringify(value)]
-    propSaveProc.running = true
-  }
-
-  function applyProperties() {
-    var wid = root.selectedWallpaperId
-    if (!wid) return
-    var args = [root.weBin, "set", wid]
-    var props = root.wallpaperProperties
-    var custom = root.customProps
-    var changed = false
-    for (var key in props) {
-      if (custom && custom.hasOwnProperty(key)) {
-        args.push("--set-property")
-        args.push(key + "=" + String(custom[key]))
-        changed = true
-      }
-    }
-    if (!changed) {
-      root.dismiss()
-      Quickshell.execDetached([root.weBin, "set", wid])
-      Quickshell.execDetached(["bash", root.pluginDir + "/we-grid-data", "touch", wid])
-      root.closeProperties()
-      return
-    }
-    root.dismiss()
-    Quickshell.execDetached(args)
-    Quickshell.execDetached(["bash", root.pluginDir + "/we-grid-data", "touch", wid])
-    root.closeProperties()
-  }
-
-  // ---- funciones auxiliares de propiedades ---------------------------------
-  function colorFromString(s) {
-    // Acepta "r g b a" o "r,g,b,a" o hex "#RRGGBB" / "#RRGGBBAA"
-    if (!s) return "#000000"
-    s = String(s).trim()
-    var m = s.match(/^#([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$/)
-    if (m) {
-      var r = parseInt(m[1].substring(0, 2), 16) / 255
-      var g = parseInt(m[1].substring(2, 4), 16) / 255
-      var b = parseInt(m[1].substring(4, 6), 16) / 255
-      var a = m[2] ? parseInt(m[2], 16) / 255 : 1
-      return Qt.rgba(r, g, b, a)
-    }
-    var parts = s.split(/[\s,]+/).filter(function(p) { return p !== "" })
-    if (parts.length >= 3) {
-      return Qt.rgba(Number(parts[0]), Number(parts[1]), Number(parts[2]),
-                     parts.length >= 4 ? Number(parts[3]) : 1)
-    }
-    return s
-  }
-
-  function editColor(key, current) {
-    colorProc.command = ["hyprpicker", "-a"]
-    colorProc.running = true
-    colorProc._pendingKey = key
-  }
-
-  function editCombo(key, current, propDef) {
-    // Para combo, simplemente permitir editar como texto
-    var options = propDef.options || []
-    var msg = "Current: " + current + "\nOptions: " + options.join(", ")
-    Quickshell.execDetached(["notify-send", "Combo " + key, msg])
-    // En la práctica, el usuario edita el valor como texto
-    editText(key, current)
-  }
-
-  function editText(key, current) {
-    textProc.command = ["bash", "-c",
-      "echo -n '" + String(current).replace(/'/g, "'\\''") + "' | wofi --dmenu --prompt 'Edit " + key + "' 2>/dev/null || cat"]
-    // wofi puede no estar disponible; usar un enfoque simple: notificar y dejar que el usuario use setCustomProp desde otro lado
-    // Por ahora, simplemente aplicar el valor actual como texto
-    // Se podría mejorar con un TextInput dedicado
-    return current
-  }
-
   ListModel { id: model }
 
   Process {
@@ -460,53 +321,6 @@ Item {
     onExited: root.positionOnCurrent()
   }
 
-  // Lee el project.json de un wallpaper para obtener sus propiedades definidas por el autor
-  Process {
-    id: propsProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.loadWallpaperProperties(String(text || ""))
-    }
-  }
-
-  // Aplica propiedades personalizadas relanzando linux-wallpaperengine con --set-property
-  Process { id: applyPropsProc }
-
-  // Guarda una propiedad personalizada en el archivo JSON del wallpaper
-  Process { id: propSaveProc }
-
-  // Captura color de hyprpicker
-  Process {
-    id: colorProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var hex = String(text || "").trim()
-        if (hex && colorProc._pendingKey) {
-          // Convertir hex #RRGGBBAA a "r g b a" (0-1)
-          var m = hex.match(/^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})?$/)
-          if (m) {
-            var r = (parseInt(m[1], 16) / 255).toFixed(4)
-            var g = (parseInt(m[2], 16) / 255).toFixed(4)
-            var b = (parseInt(m[3], 16) / 255).toFixed(4)
-            var a = m[4] ? (parseInt(m[4], 16) / 255).toFixed(4) : "1"
-            root.setCustomProp(colorProc._pendingKey, r + " " + g + " " + b + " " + a)
-          }
-        }
-        colorProc._pendingKey = null
-      }
-    }
-  }
-
-  // Lee las propiedades personalizadas guardadas por el usuario
-  Process {
-    id: loadCustomProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.loadCustomProps(String(text || ""))
-    }
-  }
-
   Timer {
     id: noticeTimer
     interval: 1800
@@ -515,6 +329,8 @@ Item {
 
   OverlayWindow {
     id: panel
+    width: Quickshell.screens.length > 0 ? Quickshell.screens[0].width : 1920
+    height: Quickshell.screens.length > 0 ? Quickshell.screens[0].height : 1080
     shown: root.opened
     WlrLayershell.namespace: "wallpaper-engine-grid"
 
@@ -535,8 +351,9 @@ Item {
       radius: root.cornerRadius
       anchors.centerIn: panel.contentItem
       color: root.background
-      borderSpec: root.borderSpec
-      padding: root.contentMargin
+      border.width: root.borderWidth
+      border.color: root.border
+      anchors.margins: root.contentMargin
 
       MouseArea { anchors.fill: parent; onClicked: {} }
 
@@ -711,36 +528,6 @@ Item {
                   hoverEnabled: true
                   cursorShape: Qt.PointingHandCursor
                   onClicked: root.applyRandom()
-                }
-              }
-
-              // Propiedades del wallpaper seleccionado
-              Rectangle {
-                width: propsLabel.implicitWidth + Style.spacing.controlPaddingX * 2
-                height: root.chipHeight
-                radius: root.cornerRadius
-                color: propsArea.containsMouse && root.selectedWallpaperId ? root.selectedBackground : root.hoverFill
-                border.width: 1
-                border.color: root.border
-                enabled: root.selectedWallpaperId ? true : false
-
-                Text {
-                  id: propsLabel
-                  anchors.centerIn: parent
-                  textFormat: Text.PlainText
-                  text: "Properties"
-                  color: root.selectedWallpaperId ? root.foreground : root.muted
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  opacity: root.selectedWallpaperId ? 1 : 0.5
-                }
-                MouseArea {
-                  id: propsArea
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
-                  enabled: root.selectedWallpaperId ? true : false
-                  onClicked: if (root.selectedWallpaperId) root.openProperties(root.selectedWallpaperId)
                 }
               }
             }
@@ -1066,323 +853,6 @@ Item {
           }
         }
       }
-
-      // ---- panel de propiedades --------------------------------------------
-      Rectangle {
-        id: propertiesPanel
-        visible: root.propertiesPanelOpen && Object.keys(root.wallpaperProperties).length > 0
-        anchors.fill: parent
-        color: "#000000dd"
-
-        Rectangle {
-          width: Math.min(parent.width - 2 * root.contentMargin, Style.space(420))
-          height: parent.height - 2 * root.contentMargin
-          anchors.centerIn: parent
-          radius: root.cornerRadius
-          color: root.background
-          borderSpec: root.borderSpec
-          padding: root.contentMargin
-
-          Column {
-            anchors.fill: parent
-            spacing: root.contentSpacing
-
-            // Header del panel
-            Row {
-              width: parent.width
-              height: root.chipHeight
-              spacing: Style.space(10)
-
-              Text {
-                textFormat: Text.PlainText
-                text: "Wallpaper Properties"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.title
-              }
-
-              Text {
-                anchors.right: parent.right
-                textFormat: Text.PlainText
-                text: "✕"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.heading
-                MouseArea {
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: root.closeProperties()
-                }
-              }
-            }
-
-            // Scroll de propiedades
-            Flickable {
-              anchors.fill: parent
-              anchors.topMargin: root.contentSpacing
-              anchors.bottomMargin: root.contentSpacing
-              clip: true
-
-              Column {
-                id: propColumn
-                width: parent.width
-                spacing: root.contentSpacing
-
-                Repeater {
-                  model: Object.keys(root.wallpaperProperties)
-
-                  delegate: Item {
-                    width: parent.width
-                    property string propKey: modelData
-                    property var propDef: root.wallpaperProperties[propKey]
-                    property var currentValue: root.propValue(propKey)
-
-                    Column {
-                      width: parent.width
-                      spacing: Style.space(6)
-
-                      Row {
-                        width: parent.width
-                        height: root.chipHeight
-                        spacing: Style.space(10)
-
-                        Text {
-                          textFormat: Text.PlainText
-                          text: propDef.text || propKey
-                          color: root.foreground
-                          font.family: root.fontFamily
-                          font.pixelSize: Style.font.body
-                          width: Style.space(160)
-                          elide: Text.ElideRight
-                        }
-
-                        // Control según tipo
-                        Row {
-                          spacing: Style.space(6)
-
-                          // boolean / toggle
-                          Rectangle {
-                            visible: propDef.type === "boolean" || propDef.type === "toggle"
-                            width: root.chipHeight
-                            height: root.chipHeight
-                            radius: root.cornerRadius
-                            color: (currentValue === true || currentValue === "true" || currentValue === 1) ? root.accent : root.hoverFill
-                            border.width: 1
-                            border.color: root.border
-
-                            Text {
-                              anchors.centerIn: parent
-                              text: (currentValue === true || currentValue === "true" || currentValue === 1) ? "✓" : ""
-                              color: root.background
-                              font.family: root.fontFamily
-                              font.pixelSize: Style.font.body
-                            }
-                            MouseArea {
-                              anchors.fill: parent
-                              hoverEnabled: true
-                              cursorShape: Qt.PointingHandCursor
-                              onClicked: root.setCustomProp(propKey, !(currentValue === true || currentValue === "true" || currentValue === 1))
-                            }
-                          }
-
-                          // slider
-                          Rectangle {
-                            visible: propDef.type === "slider"
-                            width: parent.width - 200
-                            height: root.chipHeight
-                            radius: root.cornerRadius
-                            color: root.hoverFill
-                            border.width: 1
-                            border.color: root.border
-
-                            Slider {
-                              anchors.fill: parent
-                              anchors.margins: Style.space(8)
-                              from: propDef.min || 0
-                              to: propDef.max || 1
-                              stepSize: propDef.step || 0.1
-                              value: currentValue ? Number(currentValue) : (propDef.value || 0)
-                              onValueChanged: root.setCustomProp(propKey, value)
-                            }
-                          }
-
-                          // color
-                          Rectangle {
-                            visible: propDef.type === "color"
-                            width: root.chipHeight
-                            height: root.chipHeight
-                            radius: root.cornerRadius
-                            color: currentValue ? colorFromString(currentValue) : "#000000"
-                            border.width: 1
-                            border.color: root.border
-
-                            MouseArea {
-                              anchors.fill: parent
-                              hoverEnabled: true
-                              cursorShape: Qt.PointingHandCursor
-                              onPressed: {
-                                // Abrir un input de texto para el color
-                                var newColor = root.customProps[propKey] || (propDef.value || "")
-                                var edited = root.editColor(propKey, newColor)
-                                if (edited !== null) root.setCustomProp(propKey, edited)
-                              }
-                            }
-                          }
-
-                          // combo
-                          Rectangle {
-                            visible: propDef.type === "combo"
-                            width: parent.width - 200
-                            height: root.chipHeight
-                            radius: root.cornerRadius
-                            color: root.hoverFill
-                            border.width: 1
-                            border.color: root.border
-
-                            Text {
-                              anchors.verticalCenter: parent.verticalCenter
-                              anchors.left: parent.left
-                              anchors.leftMargin: Style.spacing.controlPaddingX
-                              textFormat: Text.PlainText
-                              text: currentValue ? String(currentValue) : (propDef.value || "")
-                              color: root.foreground
-                              font.family: root.fontFamily
-                              font.pixelSize: Style.font.body
-                            }
-                            MouseArea {
-                              anchors.fill: parent
-                              hoverEnabled: true
-                              cursorShape: Qt.PointingHandCursor
-                              onPressed: {
-                                var current = root.customProps[propKey] || (propDef.value || "")
-                                var edited = root.editCombo(propKey, current, propDef)
-                                if (edited !== null) root.setCustomProp(propKey, edited)
-                              }
-                            }
-                          }
-
-                          // textinput / text
-                          Rectangle {
-                            visible: propDef.type === "textinput" || propDef.type === "text"
-                            width: parent.width - 200
-                            height: root.chipHeight
-                            radius: root.cornerRadius
-                            color: root.hoverFill
-                            border.width: 1
-                            border.color: root.border
-
-                            Text {
-                              anchors.verticalCenter: parent.verticalCenter
-                              anchors.left: parent.left
-                              anchors.leftMargin: Style.spacing.controlPaddingX
-                              textFormat: Text.PlainText
-                              text: currentValue ? String(currentValue) : (propDef.value || "")
-                              color: root.foreground
-                              font.family: root.fontFamily
-                              font.pixelSize: Style.font.body
-                              elide: Text.ElideRight
-                            }
-                            MouseArea {
-                              anchors.fill: parent
-                              hoverEnabled: true
-                              cursorShape: Qt.PointingHandCursor
-                              onPressed: {
-                                var current = root.customProps[propKey] || (propDef.value || "")
-                                var edited = root.editText(propKey, current)
-                                if (edited !== null) root.setCustomProp(propKey, edited)
-                              }
-                            }
-                          }
-                        }
-                      }
-
-                      // Barra de ayuda con rango para sliders
-                      Row {
-                        visible: propDef.type === "slider"
-                        width: parent.width
-                        spacing: Style.space(8)
-
-                        Text {
-                          textFormat: Text.PlainText
-                          text: (propDef.min || 0)
-                          color: root.muted
-                          font.family: root.fontFamily
-                          font.pixelSize: Style.font.caption
-                          width: Style.space(30)
-                        }
-
-                        Text {
-                          anchors.right: parent.right
-                          textFormat: Text.PlainText
-                          text: (propDef.max || 1)
-                          color: root.muted
-                          font.family: root.fontFamily
-                          font.pixelSize: Style.font.caption
-                          width: Style.space(30)
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }  // cierre de Column propColumn
-          }  // cierre de Flickable
-
-            // Botones Apply / Close
-            Row {
-              width: parent.width
-              height: root.chipHeight
-              spacing: Style.space(10)
-
-              Rectangle {
-                width: parent.width / 2 - Style.space(5)
-                height: root.chipHeight
-                radius: root.cornerRadius
-                color: root.accent
-
-                Text {
-                  anchors.centerIn: parent
-                  textFormat: Text.PlainText
-                  text: "Apply"
-                  color: root.background
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                }
-                MouseArea {
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: root.applyProperties()
-                }
-              }
-
-              Rectangle {
-                width: parent.width / 2 - Style.space(5)
-                height: root.chipHeight
-                radius: root.cornerRadius
-                color: root.hoverFill
-                border.width: 1
-                border.color: root.border
-
-                Text {
-                  anchors.centerIn: parent
-                  textFormat: Text.PlainText
-                  text: "Close"
-                  color: root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                }
-                MouseArea {
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: root.closeProperties()
-                }
-              }
-            }
-          }
-        }
-      }
     }
   }
+}

@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# we-grid-apply — apply a wallpaper, optionally overriding its properties.
+#
+#   we-grid-apply <workshop-id> [key=value ...]
+#
+# The official `omarchy-we set` does not forward linux-wallpaperengine's
+# --set-property flag, and we deliberately do not modify that CLI. So:
+#
+#   1. `omarchy-we set <id>` does the real work (state file, Omarchy background,
+#      notification, scaling, monitors) exactly as the rest of the desktop expects.
+#   2. If property overrides were given, the running renderer's own argv is read
+#      back from /proc, the overrides are inserted before the first
+#      --screen-root, and that same command is relaunched. Nothing is guessed
+#      about monitors or scaling: the launch contract stays omarchy-we's.
+#
+# With no overrides this is exactly `omarchy-we set <id>`.
+
+set -euo pipefail
+
+id="${1:-}"
+[[ -n $id ]] || { echo "usage: we-grid-apply <workshop-id> [key=value ...]" >&2; exit 2; }
+shift || true
+
+OMARCHY_WE="${OMARCHY_WE_BIN:-$HOME/.local/bin/omarchy-we}"
+WE_BIN="linux-wallpaperengine"
+RENDERER_PATTERN="${WE_BIN}[^ ]* .*--screen-root"
+
+"$OMARCHY_WE" set "$id" >/dev/null
+
+(($# > 0)) || exit 0
+
+# Wait for the renderer omarchy-we just started (it detaches asynchronously).
+pid=""
+for _ in $(seq 1 40); do
+  pid="$(pgrep -f "$RENDERER_PATTERN" | head -n1 || true)"
+  [[ -n $pid ]] && break
+  sleep 0.1
+done
+[[ -n $pid ]] || exit 0
+
+mapfile -d '' argv < "/proc/$pid/cmdline" || exit 0
+((${#argv[@]} > 0)) || exit 0
+
+# Insert the overrides before the first --screen-root so they apply globally.
+new_argv=()
+inserted=0
+for arg in "${argv[@]}"; do
+  if [[ $inserted -eq 0 && $arg == "--screen-root" ]]; then
+    for prop in "$@"; do
+      new_argv+=("--set-property" "$prop")
+    done
+    inserted=1
+  fi
+  new_argv+=("$arg")
+done
+# Defensive: a renderer without --screen-root (unexpected) still gets the props.
+if [[ $inserted -eq 0 ]]; then
+  for prop in "$@"; do
+    new_argv+=("--set-property" "$prop")
+  done
+fi
+
+pkill -f "$RENDERER_PATTERN" 2>/dev/null || true
+sleep 0.3
+setsid -f "${new_argv[@]}" >/dev/null 2>&1 || \
+  setsid -f uwsm-app -- "${new_argv[@]}" >/dev/null 2>&1
