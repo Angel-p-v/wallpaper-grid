@@ -6,7 +6,7 @@ A real **wrapping grid picker** for Wallpaper Engine on Omarchy. Replaces the ho
 
 - **Grid layout** (not a horizontal carousel) with 3–7 adaptive columns
 - **Fuzzy search** by title and tags
-- **Filter chips**: All, ★ Favorites, Recent, scene/video/web, and top tags (Anime, Game, Cyberpunk, etc.)
+- **Filter chips**: All, ★ Favorites, Recent, scene/video/web, and top tags
 - **Favorites** with `Ctrl+F`, persisted across sessions
 - **Recents** sorted by last use
 - **Apply wallpaper** with `Enter` using `omarchy-we set`
@@ -21,11 +21,31 @@ A real **wrapping grid picker** for Wallpaper Engine on Omarchy. Replaces the ho
 
 ## Requirements
 
-- **Omarchy** installed and running
-- **omarchy-we** CLI (Omarchy's official Wallpaper Engine plugin)
-- **linux-wallpaperengine** with Steam Workshop wallpapers
-- **Steam Workshop** content downloaded in `~/.local/share/Steam/steamapps/workshop/content/431960/`
-- **ImageMagick** (`magick` command) for thumbnail generation
+You need Omarchy running plus a few external tools. Install them from their upstream repos:
+
+| Dependency | What it's for | Install from |
+|---|---|---|
+| **Omarchy** | Desktop shell / plugin host | https://github.com/omarchy/omarchy |
+| **omarchy-we** | Wallpaper Engine CLI (`omarchy-we set`) | https://github.com/omarchy-wallpaper-engine/omarchy-we |
+| **linux-wallpaperengine** | Wallpaper Engine renderer on Linux | https://github.com/turquicios/linux-wallpaperengine |
+| **ImageMagick** (`magick`) | Thumbnail generation | https://imagemagick.org |
+| **Steam Workshop content** | Wallpapers downloaded by Steam | https://store.steampowered.com/app/431960 |
+
+On Arch Linux you can install most of these with:
+
+```bash
+# ImageMagick
+sudo pacman -S imagemagick
+
+# Omarchy (if not already installed)
+# See: https://github.com/omarchy/omarchy
+
+# omarchy-we & linux-wallpaperengine
+# See their repos above for install instructions
+```
+
+Wallpapers must be downloaded in:
+`~/.local/share/Steam/steamapps/workshop/content/431960/`
 
 ## Installation
 
