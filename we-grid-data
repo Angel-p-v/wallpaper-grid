@@ -6,9 +6,12 @@
 #   we-grid-data fav <id>      add a wallpaper to favorites
 #   we-grid-data unfav <id>    remove a wallpaper from favorites
 #   we-grid-data touch <id>    record a wallpaper as recently used
+#   we-grid-data prop <id> get   print custom properties JSON for a wallpaper
+#   we-grid-data prop <id> set <key> <value>   save a custom property value
 #
 # State lives in $XDG_STATE_HOME/we-grid (favorites, history). Thumbnails are
-# cached in $XDG_CACHE_HOME/we-grid/thumbs. Nothing outside those two dirs is
+# cached in $XDG_CACHE_HOME/we-grid/thumbs. Custom property overrides live in
+# $XDG_STATE_HOME/we-grid/properties/<id>.json. Nothing outside those dirs is
 # written; the omarchy-we state file is only read.
 
 set -euo pipefail
@@ -171,8 +174,55 @@ PY
     mv -f "$STATE_DIR/history.tmp" "$STATE_DIR/history"
     ;;
 
+  prop)
+    id="${2:-}"; [[ -n $id ]] || exit 2
+    sub="${3:-get}"; [[ -n $sub ]] || exit 2
+    PROP_DIR="$STATE_DIR/properties"
+    mkdir -p "$PROP_DIR"
+    prop_file="$PROP_DIR/$id.json"
+    case "$sub" in
+      get)
+        if [[ -f $prop_file ]]; then cat "$prop_file"; else echo "{}"; fi
+        ;;
+      set)
+        key="${4:-}"; val="${5:-}"; [[ -n $key && -n $val ]] || exit 2
+        tmp="$PROP_DIR/$id.tmp"
+        if [[ -f $prop_file ]]; then
+          python3 - "$prop_file" "$key" "$val" "$tmp" <<'PY'
+import json, sys
+src, key, val, out = sys.argv[1:5]
+with open(src) as fh:
+    data = json.load(fh)
+try:
+    data[key] = json.loads(val)
+except Exception:
+    data[key] = val
+with open(out, "w") as fh:
+    json.dump(data, fh, ensure_ascii=False)
+PY
+        else
+          python3 - "$key" "$val" "$tmp" <<'PY'
+import json, sys
+key, val, out = sys.argv[1:4]
+try:
+    data = {key: json.loads(val)}
+except Exception:
+    data = {key: val}
+with open(out, "w") as fh:
+    json.dump(data, fh, ensure_ascii=False)
+PY
+        fi
+        mv -f "$tmp" "$prop_file"
+        ;;
+      *)
+        echo "usage: we-grid-data prop <id> {get|set <key> <value>}" >&2
+        exit 2
+        ;;
+    esac
+    ;;
+
   *)
-    echo "usage: we-grid-data {data|thumbs|fav <id>|unfav <id>|touch <id>}" >&2
+    echo "usage: we-grid-data {data|thumbs|fav <id>|unfav <id>|touch <id>|prop <id> {get|set <key> <value>}}" >&2
     exit 2
     ;;
 esac
