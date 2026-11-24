@@ -4,10 +4,12 @@ A real **wrapping grid picker** for Wallpaper Engine on Omarchy. Replaces the ho
 
 ## Features
 
-- **Grid layout** (not a horizontal carousel) with 3–7 adaptive columns
+- **Adaptive grid** with large previews and Omarchy theme colors
 - **Fuzzy search** by title and tags
 - **Filter chips**: All, ★ Favorites, Recent, scene/video/web, and top tags
-- **Favorites** with `Ctrl+F`, persisted across sessions
+- **Favorites** from each card or with `Ctrl+F`, persisted across sessions
+- **Expanded preview** with original video playback and animated Workshop previews
+- **Automatic scene clips** for scenes with a static preview, rendered in the background and cached as 4-second 720p clips
 - **Recents** sorted by last use
 - **Apply wallpaper** with `Enter` using `omarchy-we set`
 - **Stop live wallpaper** with `Delete`
@@ -29,13 +31,18 @@ You need Omarchy running plus a few external tools. Install them from their upst
 | **omarchy-we** | Wallpaper Engine CLI (`omarchy-we set`) | https://github.com/omarchy-wallpaper-engine/omarchy-we |
 | **linux-wallpaperengine** | Wallpaper Engine renderer on Linux | https://github.com/turquicios/linux-wallpaperengine |
 | **ImageMagick** (`magick`) | Thumbnail generation | https://imagemagick.org |
+| **Qt Multimedia** with the FFmpeg backend | Video playback in the expanded preview | Arch packages `qt6-multimedia` and `qt6-multimedia-ffmpeg` |
+| **Gamescope, FFmpeg, and xprop** (optional) | Automatic background capture for scenes with a static preview | Arch packages `gamescope`, `ffmpeg`, and `xorg-xprop` |
 | **Steam Workshop content** | Wallpapers downloaded by Steam | https://store.steampowered.com/app/431960 |
 
 On Arch Linux you can install most of these with:
 
 ```bash
 # ImageMagick
-sudo pacman -S imagemagick
+sudo pacman -S imagemagick qt6-multimedia qt6-multimedia-ffmpeg
+
+# Automatic scene clips
+sudo pacman -S gamescope ffmpeg xorg-xprop
 
 # Omarchy (if not already installed)
 # See: https://github.com/omarchy/omarchy
@@ -80,6 +87,9 @@ o.bind("SUPER + SHIFT + Z", "Wallpaper Engine grid", "omarchy-shell shell summon
 | Close grid | `SUPER + W` / `Esc` / ✕ / click outside |
 | Search | type title or tag |
 | Navigate | arrow keys / mouse |
+| Open expanded preview | `Space` or `Ctrl + Space` while typing a search |
+| Compare in expanded preview | arrow keys |
+| Return to grid from expanded preview | `Esc` |
 | Apply wallpaper | `Enter` |
 | Favorite / Unfavorite | `Ctrl + F` |
 | Random wallpaper | `Ctrl + R` |
@@ -101,6 +111,9 @@ o.bind("SUPER + SHIFT + Z", "Wallpaper Engine grid", "omarchy-shell shell summon
 
 - Favorites & history: `~/.local/state/we-grid/`
 - Thumbnails: `~/.cache/we-grid/thumbs/`
+- Generated scene clips: `~/.cache/we-grid/scene-clips/`
+
+The first time you preview a scene with a static image, the image stays visible while the clip is generated. If capture is unavailable or fails, the image remains visible.
 
 ## License
 

@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Capture one short scene loop in an isolated Gamescope session.
+set -euo pipefail
+
+width=1280
+height=720
+fps=30
+
+if [[ ${1:-} == capture ]]; then
+  scene=$2
+  output=$3
+  assets=$4
+  env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET GLFW_PLATFORM=x11 XDG_SESSION_TYPE=x11 \
+    linux-wallpaperengine --silent --window "0x0x${width}x${height}" --scaling fit --clamp border \
+    --fps "$fps" --assets-dir "$assets" "$scene" >/dev/null 2>&1 &
+  renderer=$!
+  trap 'kill "$renderer" 2>/dev/null || true; wait "$renderer" 2>/dev/null || true' EXIT
+  trap 'exit 1' TERM INT
+
+  window=
+  for ((attempt = 0; attempt < 40; attempt++)); do
+    kill -0 "$renderer" 2>/dev/null || exit 1
+    candidate=$(xprop -root _NET_ACTIVE_WINDOW 2>/dev/null || true)
+    candidate=${candidate##* }
+    if [[ $candidate =~ ^0x[1-9a-fA-F][0-9a-fA-F]*$ ]]; then
+      window=$candidate
+      break
+    fi
+    sleep 0.15
+  done
+  [[ -n $window ]]
+  sleep 0.5
+
+  ffmpeg -nostdin -hide_banner -loglevel error -y \
+    -f x11grab -window_id "$((window))" -draw_mouse 0 \
+    -video_size "${width}x${height}" -framerate "$fps" -i "$DISPLAY" \
+    -t 4 -an -c:v libx264 -preset ultrafast -crf 19 -pix_fmt yuv420p \
+    -movflags +faststart "$output"
+  exit
+fi
+
+id=${1:-}
+[[ $id =~ ^[0-9]+$ ]] || exit 2
+workshop=${WE_WORKSHOP:-"$HOME/.local/share/Steam/steamapps/workshop/content/431960"}
+assets="$HOME/.local/share/Steam/steamapps/common/wallpaper_engine/assets"
+scene="$workshop/$id"
+[[ -f "$scene/project.json" && -d $assets ]] || exit 1
+
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/we-grid/scene-clips"
+mkdir -p "$cache"
+# Steam updates the project or its directory when it replaces a Workshop item.
+fingerprint=$(stat -c '%Y:%Z:%s' "$scene" "$scene/project.json" | sha256sum)
+output="$cache/v2-$id-${fingerprint:0:16}.mp4"
+if [[ -s $output ]]; then
+  printf '%s\n' "$output"
+  exit
+fi
+
+pending=$(mktemp --suffix=.mp4 "$cache/.$id.XXXXXXXX")
+capture_pid=
+cleanup() {
+  if [[ -n $capture_pid ]]; then
+    kill "$capture_pid" 2>/dev/null || true
+    wait "$capture_pid" 2>/dev/null || true
+  fi
+  rm -f -- "$pending"
+}
+trap cleanup EXIT
+trap 'exit 1' TERM INT
+
+# Gamescope keeps the capture away from the desktop. timeout owns the capture
+# process group, including the virtual display and its renderer.
+timeout --kill-after=2s 22s gamescope --backend headless \
+  -w "$width" -h "$height" -W "$width" -H "$height" -r "$fps" \
+  -- bash "${BASH_SOURCE[0]}" capture "$scene" "$pending" "$assets" >/dev/null 2>&1 &
+capture_pid=$!
+wait "$capture_pid"
+capture_pid=
+frames=$(ffprobe -v error -select_streams v:0 -show_entries stream=nb_frames \
+  -of default=noprint_wrappers=1:nokey=1 "$pending")
+[[ $frames =~ ^[0-9]+$ ]] || exit 1
+((frames >= fps * 3))
+mv -f -- "$pending" "$output"
+printf '%s\n' "$output"

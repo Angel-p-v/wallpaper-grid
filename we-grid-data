@@ -34,7 +34,8 @@ root = os.environ["WE_WORKSHOP"]
 cache = os.environ["WE_CACHE"]
 state = os.environ["WE_STATE"]
 current_file = os.environ["WE_CURRENT_FILE"]
-EXTS = ("jpg", "jpeg", "png", "gif", "bmp", "webp")
+VIDEO_EXTS = ("mp4", "webm", "mkv", "mov", "m4v", "avi", "wmv")
+EXTS = ("jpg", "jpeg", "png", "gif", "bmp", "webp") + VIDEO_EXTS
 
 
 def lines(path):
@@ -61,6 +62,7 @@ if os.path.isdir(root):
             continue
         project = os.path.join(entry.path, "project.json")
         kind, title, preview, tags = "?", entry.name, None, []
+        video = ""
         if os.path.isfile(project):
             try:
                 with open(project, encoding="utf-8", errors="replace") as fh:
@@ -68,6 +70,13 @@ if os.path.isdir(root):
                 kind = str(data.get("type", "?")).lower()
                 title = str(data.get("title", "")).strip() or entry.name
                 tags = [str(t) for t in (data.get("tags") or []) if str(t).strip()]
+                if kind == "video":
+                    folder = os.path.realpath(entry.path)
+                    candidate = os.path.realpath(os.path.join(folder, str(data.get("file", "")).strip()))
+                    if (os.path.commonpath((folder, candidate)) == folder
+                            and candidate.rsplit(".", 1)[-1].lower() in VIDEO_EXTS
+                            and os.path.isfile(candidate)):
+                        video = candidate
                 rel = str(data.get("preview", "")).strip()
                 if rel and os.path.isfile(os.path.join(entry.path, rel)):
                     preview = os.path.join(entry.path, rel)
@@ -80,8 +89,9 @@ if os.path.isdir(root):
                 if path.rsplit(".", 1)[-1].lower() in EXTS
             )
             preview = candidates[0] if candidates else None
-        if not preview:
+        if not preview and not video:
             continue
+        preview_is_video = bool(preview and preview.rsplit(".", 1)[-1].lower() in VIDEO_EXTS)
         thumb = os.path.join(cache, entry.name + ".webp")
         out.append({
             "id": entry.name,
@@ -89,6 +99,8 @@ if os.path.isdir(root):
             "type": kind,
             "tags": tags,
             "preview": preview,
+            "video": video or (preview if preview_is_video else ""),
+            "previewIsVideo": preview_is_video,
             "thumb": thumb if os.path.isfile(thumb) else "",
             "current": entry.name == current,
             "favorite": entry.name in favorites,
@@ -108,7 +120,8 @@ import fcntl, glob, os, subprocess
 
 root = os.environ["WE_WORKSHOP"]
 cache = os.environ["WE_CACHE"]
-EXTS = ("jpg", "jpeg", "png", "gif", "bmp", "webp")
+VIDEO_EXTS = ("mp4", "webm", "mkv", "mov", "m4v", "avi", "wmv")
+EXTS = ("jpg", "jpeg", "png", "gif", "bmp", "webp") + VIDEO_EXTS
 lock_path = os.path.join(cache, ".lock")
 
 with open(lock_path, "w") as lock:

@@ -2,9 +2,12 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
+import QtQuick.Layouts
+import QtQuick.Controls
+import QtMultimedia as Multimedia
 import qs.Commons
 import qs.Commons as Commons
-import qs.Ui
+import qs.Ui as Ui
 
 // Wallpaper Engine grid picker.
 //
@@ -24,6 +27,8 @@ Item {
   property bool opened: false
   property bool loading: false
   property string filterText: ""
+  property bool typingFilter: false
+  property bool previewOpen: false
   property string chip: "all"
   property var items: []
   property var chips: []
@@ -34,34 +39,73 @@ Item {
 
   property color background: Commons.Color.menu.background
   property color foreground: Commons.Color.menu.text
-  property color border: Commons.Color.menu.border
-  property int borderWidth: Math.max(1, Style.space(2))
   property color scrim: Commons.Color.menu.scrim
-  property color selectedBackground: Commons.Color.menu.selectedBackground
-  property color selectedText: Commons.Color.menu.selectedText
   property color accent: Commons.Color.accent
-  property color muted: Commons.Color.muted
-  property color hoverFill: Util.alpha(root.foreground, 0.06)
-  property color rowHoverFill: Util.alpha(root.accent, 0.10)
+  property color surface: Qt.tint(root.background, Util.alpha(root.foreground, 0.045))
+  property color hoverFill: Qt.tint(root.background, Util.alpha(root.foreground, 0.10))
+  property color hairline: Util.alpha(root.foreground, 0.17)
+  property color secondary: Util.alpha(root.foreground, 0.72)
 
-  readonly property int cornerRadius: Style.cornerRadius
-  property string fontFamily: Style.font.menuFamily
-  property int contentMargin: Style.spacing.panelPadding
-  property int gap: Style.space(10)
-  property int headerHeight: Math.max(Style.space(50), Style.font.heading + Style.spacing.controlPaddingY * 2)
-  property int chipHeight: Math.max(Style.space(32), Style.font.body + Style.spacing.controlPaddingY * 2)
-  property int contentSpacing: Style.spacing.md
-  property int labelHeight: Math.round(Style.font.body * 1.7 + Style.spacing.sm * 2)
-  property int footerHeight: Math.max(Style.space(28), Style.font.bodySmall + Style.spacing.sm * 2)
+  readonly property int cornerRadius: Style.space(18)
+  readonly property string fontFamily: Style.font.menuFamily
+  readonly property int gap: Style.space(14)
+  readonly property int controlHeight: Style.space(38)
+  readonly property int labelHeight: Math.max(Style.space(58), Style.font.body + Style.font.caption + Style.space(18))
 
-  property int cardWidth: Math.max(Style.space(240), Math.min(panel.width - Style.space(64), Style.space(1560)))
-  property int cardHeight: Math.max(Style.space(220), Math.min(panel.height - Style.space(64), Style.space(900)))
-  property int columns: Math.max(3, Math.min(7, Math.floor((gridArea.width + gap) / (Style.space(270) + gap))))
+  readonly property int cardWidth: Math.max(0, Math.min(panel.width - Style.space(24), Style.space(1800)))
+  readonly property int cardHeight: Math.max(0, Math.min(panel.height - Style.space(32), Style.space(880)))
+  readonly property int columns: Math.max(1, Math.floor((grid.width + gap) / (Style.space(270) + gap)))
+
+  component Label: Text {
+    textFormat: Text.PlainText
+    color: root.foreground
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.body
+  }
+
+  component Action: Rectangle {
+    property alias label: caption.text
+    property bool active: false
+    property bool compact: false
+    signal clicked()
+
+    implicitWidth: caption.implicitWidth + Style.space(24)
+    height: compact ? Style.space(30) : root.controlHeight
+    radius: compact ? height / 2 : Style.space(9)
+    color: active ? Qt.tint(root.surface, Util.alpha(root.accent, 0.19))
+                  : actionMouse.containsMouse ? root.hoverFill : root.surface
+    border.width: 1
+    border.color: active ? root.accent : root.hairline
+
+    Label {
+      id: caption
+      anchors.centerIn: parent
+      font.pixelSize: compact ? Style.font.bodySmall : Style.font.body
+      font.weight: active ? Font.DemiBold : Font.Normal
+    }
+    MouseArea {
+      id: actionMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: parent.clicked()
+    }
+  }
+
+  function typeLabel(type) {
+    switch (type) {
+      case "scene": return "Escena"
+      case "video": return "Vídeo"
+      case "web": return "Web"
+      default: return type === "?" ? "Fondo" : type
+    }
+  }
 
   function open(payload) {
     root.opened = true
-    panel.shown = true
     root.filterText = ""
+    root.typingFilter = false
+    root.previewOpen = false
     root.chip = "all"
     root.cursorActive = true
     root.notice = ""
@@ -76,7 +120,7 @@ Item {
   }
 
   function dismiss() {
-    root.opened = false
+    root.close()
     if (root.shell && typeof root.shell.hide === "function")
       root.shell.hide((root.manifest && root.manifest.id) || "coronel.wallpaper-grid")
   }
@@ -135,13 +179,13 @@ Item {
       }
     }
     var out = [
-      { key: "all", label: "All" },
-      { key: "fav", label: "★ Favorites" },
-      { key: "recent", label: "Recent" }
+      { key: "all", label: "Todos" },
+      { key: "fav", label: "★ Favoritos" },
+      { key: "recent", label: "Recientes" }
     ]
     var typeOrder = ["scene", "video", "web"]
     for (var t = 0; t < typeOrder.length; t++)
-      if (types[typeOrder[t]]) out.push({ key: "type:" + typeOrder[t], label: typeOrder[t] })
+      if (types[typeOrder[t]]) out.push({ key: "type:" + typeOrder[t], label: root.typeLabel(typeOrder[t]) })
     var tags = Object.keys(tagCounts).filter(function(name) { return tagCounts[name] >= 2 })
     tags.sort(function(a, b) { return tagCounts[b] - tagCounts[a] })
     for (var k = 0; k < Math.min(tags.length, 8); k++)
@@ -204,7 +248,10 @@ Item {
         wid: String(row.id),
         title: String(row.title),
         type: String(row.type || "?"),
-        thumb: String(row.thumb || row.preview || ""),
+        thumb: String(row.thumb || (!row.previewIsVideo && row.preview) || ""),
+        preview: String(row.preview || row.thumb || ""),
+        video: String(row.video || ""),
+        previewIsVideo: row.previewIsVideo === true,
         fav: row.favorite === true,
         current: row.current === true
       })
@@ -226,6 +273,7 @@ Item {
 
   function setFilter(text) {
     root.filterText = text
+    root.typingFilter = text.length > 0
     root.selectedIndex = 0
     root.cursorActive = true
     root.rebuild()
@@ -233,12 +281,45 @@ Item {
 
   function setChip(key) {
     root.chip = key
+    root.typingFilter = false
     root.selectedIndex = 0
     root.cursorActive = true
     root.rebuild()
   }
 
+  function togglePreview() {
+    if (model.count === 0 || root.loading) return
+    root.typingFilter = false
+    root.previewOpen = !root.previewOpen
+  }
+
+  function handlePreviewKey(event) {
+    switch (Util.readingKey(event)) {
+      case Qt.Key_Escape:
+      case Qt.Key_Space:
+        if (!event.isAutoRepeat) root.previewOpen = false
+        break
+      case Qt.Key_Left:
+      case Qt.Key_Up:
+        root.move(-1)
+        break
+      case Qt.Key_Right:
+      case Qt.Key_Down:
+        root.move(1)
+        break
+      case Qt.Key_Return:
+      case Qt.Key_Enter:
+        root.applyIndex(root.selectedIndex)
+        break
+      case Qt.Key_W:
+        if (event.modifiers & Qt.MetaModifier) root.dismiss()
+        break
+    }
+    event.accepted = true
+  }
+
   function move(delta) {
+    root.typingFilter = false
     if (model.count === 0) return
     if (!root.cursorActive) { root.cursorActive = true; root.selectedIndex = 0 }
     else root.selectedIndex = Math.max(0, Math.min(model.count - 1, root.selectedIndex + delta))
@@ -246,6 +327,7 @@ Item {
   }
 
   function moveRow(delta) {
+    root.typingFilter = false
     if (model.count === 0) return
     if (!root.cursorActive) { root.cursorActive = true; root.selectedIndex = 0 }
     else root.selectedIndex = Math.max(0, Math.min(model.count - 1, root.selectedIndex + delta * root.columns))
@@ -282,7 +364,7 @@ Item {
     }
     root.items = root.items.slice()
     root.rebuild(id)
-    root.showNotice(next ? "Added to favorites" : "Removed from favorites")
+    root.showNotice(next ? "Añadido a favoritos" : "Quitado de favoritos")
   }
 
   function applyRandom() {
@@ -327,10 +409,8 @@ Item {
     onTriggered: root.notice = ""
   }
 
-  OverlayWindow {
+  Ui.OverlayWindow {
     id: panel
-    width: Quickshell.screens.length > 0 ? Quickshell.screens[0].width : 1920
-    height: Quickshell.screens.length > 0 ? Quickshell.screens[0].height : 1080
     shown: root.opened
     WlrLayershell.namespace: "wallpaper-engine-grid"
 
@@ -344,16 +424,15 @@ Item {
       onClicked: root.dismiss()
     }
 
-    BorderSurface {
+    Rectangle {
       id: card
       width: root.cardWidth
       height: root.cardHeight
       radius: root.cornerRadius
       anchors.centerIn: panel.contentItem
       color: root.background
-      border.width: root.borderWidth
-      border.color: root.border
-      anchors.margins: root.contentMargin
+      border.width: 1
+      border.color: root.hairline
 
       MouseArea { anchors.fill: parent; onClicked: {} }
 
@@ -364,7 +443,14 @@ Item {
 
         Keys.priority: Keys.BeforeItem
         Keys.onPressed: function(event) {
-          if (event.key === Qt.Key_Escape) {
+          if (root.previewOpen) {
+            root.handlePreviewKey(event)
+          } else if (event.key === Qt.Key_Space
+                     && (event.modifiers === Qt.ControlModifier
+                         || (event.modifiers === Qt.NoModifier && !root.typingFilter))) {
+            if (!event.isAutoRepeat) root.togglePreview()
+            event.accepted = true
+          } else if (event.key === Qt.Key_Escape) {
             root.dismiss()
             event.accepted = true
           } else if ((event.modifiers & Qt.MetaModifier) && event.key === Qt.Key_W) {
@@ -420,205 +506,118 @@ Item {
         }
       }
 
-      Column {
-        id: contentColumn
+      ColumnLayout {
+        visible: !root.previewOpen
         anchors.fill: parent
-        anchors.topMargin: card.contentTopInset
-        anchors.rightMargin: card.contentRightInset
-        anchors.bottomMargin: card.contentBottomInset
-        anchors.leftMargin: card.contentLeftInset
-        spacing: root.contentSpacing
+        anchors.margins: Style.space(24)
+        spacing: Style.space(14)
 
-        // ---- header: search + actions + close ----------------------------
-        Item {
-          width: parent.width
-          height: root.headerHeight
+        RowLayout {
+          Layout.fillWidth: true
+          spacing: Style.space(8)
 
-          Row {
-            anchors.fill: parent
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: Style.space(10)
+          Label {
+            Layout.fillWidth: true
+            text: "Wallpaper Engine"
+            font.pixelSize: Style.space(26)
+            font.weight: Font.DemiBold
+            elide: Text.ElideRight
+          }
 
-            // Buscador (ocupa el espacio disponible a la izquierda)
-            Rectangle {
-              width: searchText.implicitWidth + Style.spacing.controlPaddingX * 2 + 40
-              height: root.chipHeight
-              radius: root.cornerRadius
-              color: root.hoverFill
-              border.width: root.filterText ? 1 : 0
-              border.color: root.filterText ? root.accent : root.border
-
-              Text {
-                id: searchText
-                textFormat: Text.PlainText
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.left: parent.left
-                anchors.leftMargin: Style.spacing.controlPaddingX
-                anchors.right: parent.right
-                anchors.rightMargin: 36
-                text: root.filterText || "󰍉  Search title or tag…"
-                color: root.filterText ? root.foreground : root.muted
-                opacity: root.filterText ? 1 : 0.6
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.heading
-                elide: Text.ElideRight
-              }
-
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.right: parent.right
-                anchors.rightMargin: Style.spacing.controlPaddingX / 2
-                text: "󰍉"
-                color: root.filterText ? root.accent : root.muted
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.heading
-              }
-            }
-
-            // Acciones (centro-derecha)
-            Row {
-              spacing: Style.space(8)
-
-              Rectangle {
-                width: stopLabel.implicitWidth + Style.spacing.controlPaddingX * 2
-                height: root.chipHeight
-                radius: root.cornerRadius
-                color: stopArea.containsMouse ? root.selectedBackground : root.hoverFill
-                border.width: 1
-                border.color: root.border
-
-                Text {
-                  id: stopLabel
-                  anchors.centerIn: parent
-                  textFormat: Text.PlainText
-                  text: "Stop live"
-                  color: root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                }
-                MouseArea {
-                  id: stopArea
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: root.stopLive()
-                }
-              }
-
-              Rectangle {
-                width: randomLabel.implicitWidth + Style.spacing.controlPaddingX * 2
-                height: root.chipHeight
-                radius: root.cornerRadius
-                color: randomArea.containsMouse ? root.selectedBackground : root.hoverFill
-                border.width: 1
-                border.color: root.border
-
-                Text {
-                  id: randomLabel
-                  anchors.centerIn: parent
-                  textFormat: Text.PlainText
-                  text: "Random"
-                  color: root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                }
-                MouseArea {
-                  id: randomArea
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: root.applyRandom()
-                }
-              }
-            }
-
-            // Cerrar (X) — siempre al extremo derecho, sin solapes
-            Rectangle {
-              width: root.chipHeight
-              height: root.chipHeight
-              radius: root.cornerRadius
-              color: closeArea.containsMouse ? root.selectedBackground : root.hoverFill
-              border.width: 1
-              border.color: root.border
-
-              Text {
-                anchors.centerIn: parent
-                text: "✕"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.heading
-              }
-              MouseArea {
-                id: closeArea
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: root.dismiss()
-              }
-            }
+          Action {
+            label: "Aleatorio"
+            onClicked: root.applyRandom()
+          }
+          Action {
+            label: "Detener"
+            onClicked: root.stopLive()
+          }
+          Action {
+            Layout.preferredWidth: root.controlHeight
+            label: "×"
+            onClicked: root.dismiss()
           }
         }
 
-        // ---- filter chips (horizontal scroll) ----------------------------
+        Rectangle {
+          Layout.fillWidth: true
+          Layout.preferredHeight: root.controlHeight + Style.space(4)
+          radius: Style.space(10)
+          color: root.surface
+          border.width: 1
+          border.color: root.filterText ? root.accent : root.hairline
+
+          RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: Style.space(12)
+            anchors.rightMargin: Style.space(8)
+            spacing: Style.space(10)
+
+            Label {
+              text: "󰍉"
+              color: root.secondary
+            }
+            Label {
+              Layout.fillWidth: true
+              text: root.filterText || "Escribe para buscar por título o etiqueta"
+              color: root.filterText ? root.foreground : root.secondary
+              elide: Text.ElideRight
+            }
+            Action {
+              visible: root.filterText.length > 0
+              compact: true
+              label: "Limpiar"
+              onClicked: root.setFilter("")
+            }
+          }
+          TapHandler {
+            onTapped: keyCatcher.forceActiveFocus()
+          }
+        }
+
         Flow {
-          width: parent.width
-          height: root.chipHeight + Style.space(4)
+          Layout.fillWidth: true
+          Layout.preferredHeight: implicitHeight
           spacing: Style.space(6)
 
           Repeater {
             model: root.chips
-
-            delegate: Rectangle {
+            delegate: Action {
               required property var modelData
-              readonly property bool active: root.chip === modelData.key
-
-              width: chipText.implicitWidth + Style.spacing.controlPaddingX * 2
-              height: root.chipHeight
-              radius: root.cornerRadius
-              color: active ? root.selectedBackground : (mouseArea.containsMouse ? root.rowHoverFill : "transparent")
-              border.width: active ? 2 : 1
-              border.color: active ? root.accent : root.border
-
-              Text {
-                id: chipText
-                anchors.centerIn: parent
-                textFormat: Text.PlainText
-                text: modelData.label
-                color: active ? root.selectedText : root.foreground
-                opacity: active ? 1 : 0.9
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.body
-              }
-
-              MouseArea {
-                id: mouseArea
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: root.setChip(modelData.key)
-              }
+              width: implicitWidth
+              compact: true
+              active: root.chip === modelData.key
+              label: modelData.label
+              onClicked: root.setChip(modelData.key)
             }
           }
         }
 
-        // ---- grid --------------------------------------------------------
+        Rectangle {
+          Layout.fillWidth: true
+          Layout.preferredHeight: 1
+          color: root.hairline
+        }
+
         Item {
-          id: gridArea
-          width: parent.width
-          height: parent.height - root.headerHeight - root.chipHeight - root.footerHeight
-                  - root.contentSpacing * 4
+          Layout.fillWidth: true
+          Layout.fillHeight: true
+          Layout.minimumHeight: 0
 
           GridView {
             id: grid
             anchors.fill: parent
             model: model
             clip: true
-            cellWidth: Math.max(1, Math.floor((width + root.gap) / root.columns) - root.gap)
-            cellHeight: Math.round(cellWidth * 9 / 16) + root.labelHeight
+            cellWidth: Math.max(1, Math.floor(width / root.columns))
+            cellHeight: Math.round((cellWidth - root.gap) * 9 / 16) + root.labelHeight + root.gap
             boundsBehavior: Flickable.StopAtBounds
-            cacheBuffer: cellHeight * 2
-            highlightFollowsCurrentItem: true
-            highlightMoveDuration: 180
+            cacheBuffer: cellHeight
+
+            ScrollBar.vertical: ScrollBar {
+              width: Style.space(7)
+              policy: ScrollBar.AsNeeded
+            }
 
             delegate: Item {
               id: cell
@@ -628,227 +627,332 @@ Item {
               required property string type
               required property string thumb
               required property bool fav
-              required property bool current
 
               readonly property bool selected: root.cursorActive && index === root.selectedIndex
-              readonly property bool hovered: mouseArea.containsMouse || root.selectedIndex === index
+              readonly property bool live: wid === root.currentId
 
               width: grid.cellWidth
               height: grid.cellHeight
 
-              // Marco de selección alrededor de la tarjeta (rectangular, más visible cuando está seleccionada)
-              Rectangle {
-                id: selectionFrame
-                anchors.centerIn: tile
-                width: tile.width + Style.space(8)
-                height: tile.height + Style.space(8)
-                radius: 0
-                color: "transparent"
-                border.width: selected ? Math.max(4, Style.space(4)) : 0
-                border.color: selected ? root.accent : "transparent"
-                Behavior on border.width { NumberAnimation { duration: 150 } }
-                Behavior on color { NumberAnimation { duration: 150 } }
-              }
-
               Rectangle {
                 id: tile
-                anchors.fill: parent
-                anchors.margins: root.gap / 2
-                radius: root.cornerRadius
-                color: selected ? root.selectedBackground : (hovered ? root.rowHoverFill : "transparent")
-                border.width: selected ? Math.max(2, Style.space(2)) : (hovered ? 1 : 0)
-                border.color: selected ? root.accent : root.border
-                clip: true
-
-                Behavior on border.width { NumberAnimation { duration: 150 } }
-                Behavior on color { NumberAnimation { duration: 150 } }
+                width: Math.max(1, parent.width - root.gap)
+                height: parent.height - root.gap
+                radius: Style.space(10)
+                color: cellMouse.containsMouse || cell.selected ? root.hoverFill : root.surface
 
                 Image {
                   id: shot
-                  anchors.fill: parent
+                  anchors.top: parent.top
+                  anchors.left: parent.left
+                  anchors.right: parent.right
+                  anchors.margins: Style.space(4)
+                  height: tile.height - root.labelHeight - Style.space(4)
                   source: cell.thumb ? Util.fileUrl(cell.thumb) : ""
                   asynchronous: true
-                  cache: true
-                  fillMode: Image.PreserveAspectCrop
-                  sourceSize.width: Math.round(tile.width)
-                  sourceSize.height: Math.round(tile.height)
+                  fillMode: Image.PreserveAspectFit
+                  clip: true
+                  sourceSize.width: Math.round(width)
+                  sourceSize.height: Math.round(height)
+                }
 
-                  Rectangle {
-                    anchors.fill: parent
-                    color: root.background
-                    visible: shot.status !== Image.Ready
-                    opacity: 0.8
+                Label {
+                  anchors.centerIn: shot
+                  visible: shot.status !== Image.Ready
+                  text: shot.status === Image.Loading ? "Cargando vista previa…" : "Sin vista previa"
+                  color: root.secondary
+                  font.pixelSize: Style.font.caption
+                }
+
+                Column {
+                  anchors.top: shot.bottom
+                  anchors.bottom: parent.bottom
+                  anchors.left: parent.left
+                  anchors.right: favorite.left
+                  anchors.margins: Style.space(10)
+                  spacing: Style.space(3)
+
+                  Label {
+                    width: parent.width
+                    text: cell.title
+                    font.weight: Font.DemiBold
+                    elide: Text.ElideRight
                   }
-
-                  // Sombreado inferior con título (estilo Wallpaper Engine)
-                  Rectangle {
-                    anchors.bottom: parent.bottom
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    height: root.labelHeight
-                    color: "#000000"
-                    opacity: selected || hovered ? 0.55 : 0.45
-                    Behavior on opacity { NumberAnimation { duration: 150 } }
-
-                    Text {
-                      anchors.verticalCenter: parent.verticalCenter
-                      anchors.left: parent.left
-                      anchors.leftMargin: Style.space(8)
-                      anchors.right: parent.right
-                      anchors.rightMargin: Style.space(8)
-                      textFormat: Text.PlainText
-                      text: cell.title
-                      color: root.foreground
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.body
-                      wrapMode: Text.Wrap
-                      maximumLineCount: 2
-                      elide: Text.ElideRight
-                      Behavior on opacity { NumberAnimation { duration: 150 } }
-                    }
-                  }
-
-                  // Badge tipo (esquina superior izquierda)
-                  Rectangle {
-                    anchors.top: parent.top
-                    anchors.left: parent.left
-                    anchors.margins: Style.space(6)
-                    width: typeText.implicitWidth + Style.space(10)
-                    height: typeText.implicitHeight + Style.space(3)
-                    radius: root.cornerRadius / 2
-                    color: "#000000"
-                    opacity: 0.75
-
-                    Text {
-                      id: typeText
-                      anchors.centerIn: parent
-                      textFormat: Text.PlainText
-                      text: cell.type
-                      color: root.foreground
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.caption
-                    }
-                  }
-
-                  // Favorito (esquina superior derecha)
-                  Text {
-                    anchors.top: parent.top
-                    anchors.right: parent.right
-                    anchors.margins: Style.space(8)
-                    textFormat: Text.PlainText
-                    text: cell.fav ? "★" : "☆"
-                    color: cell.fav ? root.selectedText : root.muted
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.title
-                    opacity: 0.9
-                  }
-
-                  // LIVE (esquina inferior derecha, sobre la barra)
-                  Rectangle {
-                    anchors.bottom: parent.bottom
-                    anchors.right: parent.right
-                    anchors.margins: Style.space(6)
-                    visible: cell.wid === root.currentId
-                    width: liveText.implicitWidth + Style.space(10)
-                    height: liveText.implicitHeight + Style.space(3)
-                    radius: root.cornerRadius / 2
-                    color: root.accent
-
-                    Text {
-                      id: liveText
-                      anchors.centerIn: parent
-                      textFormat: Text.PlainText
-                      text: "LIVE"
-                      color: root.background
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.caption
-                      font.bold: true
-                    }
-                  }
-
-                  // Efecto hover sobre la imagen
-                  Rectangle {
-                    anchors.fill: parent
-                    color: selected ? root.accent : (hovered ? root.foreground : "transparent")
-                    opacity: selected ? 0.10 : (hovered ? 0.04 : 0)
-                    Behavior on opacity { NumberAnimation { duration: 150 } }
+                  Label {
+                    width: parent.width
+                    text: cell.live ? "● En uso · " + root.typeLabel(cell.type) : root.typeLabel(cell.type)
+                    color: cell.live ? root.accent : root.secondary
+                    font.pixelSize: Style.font.caption
+                    elide: Text.ElideRight
                   }
                 }
 
+                Rectangle {
+                  anchors.fill: parent
+                  radius: tile.radius
+                  color: "transparent"
+                  border.width: cell.selected ? 2 : 1
+                  border.color: cell.selected ? root.accent : root.hairline
+                }
+
                 MouseArea {
-                  id: mouseArea
+                  id: cellMouse
                   anchors.fill: parent
                   hoverEnabled: true
                   cursorShape: Qt.PointingHandCursor
-                  onContainsMouseChanged: if (containsMouse) {
+                  onPositionChanged: {
                     root.cursorActive = true
-                    root.selectedIndex = index
+                    root.selectedIndex = cell.index
                   }
-                  onClicked: root.applyIndex(index)
+                  onClicked: root.applyIndex(cell.index)
+                }
+
+                Action {
+                  id: favorite
+                  anchors.right: parent.right
+                  anchors.bottom: parent.bottom
+                  anchors.margins: Style.space(10)
+                  width: height
+                  compact: true
+                  active: cell.fav
+                  label: cell.fav ? "★" : "☆"
+                  Accessible.name: cell.fav ? "Quitar de favoritos" : "Añadir a favoritos"
+                  onClicked: root.toggleFavorite(cell.index)
                 }
               }
             }
           }
 
-          Column {
+          Label {
             anchors.centerIn: parent
-            width: parent.width - 2 * root.contentMargin
-            spacing: Style.space(10)
             visible: model.count === 0
-
-            Text {
-              width: parent.width
-              horizontalAlignment: Text.AlignHCenter
-              textFormat: Text.PlainText
-              text: root.loading ? "Loading…" : "󰈉"
-              color: root.foreground
-              opacity: 0.75
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.displayLarge
-              Behavior on opacity { NumberAnimation { duration: 200 } }
-            }
-
-            Text {
-              width: parent.width
-              horizontalAlignment: Text.AlignHCenter
-              textFormat: Text.PlainText
-              text: root.loading ? "" : "No wallpapers match"
-              color: root.foreground
-              opacity: 0.7
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.title
-              elide: Text.ElideRight
-              Behavior on opacity { NumberAnimation { duration: 200 } }
-            }
+            text: root.loading ? "Cargando biblioteca…" : "No hay fondos que coincidan"
+            color: root.secondary
           }
         }
 
-        // ---- footer ------------------------------------------------------
-        Item {
-          width: parent.width
-          height: root.footerHeight
+        RowLayout {
+          Layout.fillWidth: true
+          spacing: Style.space(16)
 
-          Row {
-            anchors.fill: parent
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: Style.space(16)
+          Label {
+            Layout.fillWidth: true
+            text: root.notice || (model.count === 1 ? "1 fondo" : model.count + " fondos")
+            color: root.notice ? root.accent : root.secondary
+            font.pixelSize: Style.font.bodySmall
+            elide: Text.ElideRight
+          }
+          Action {
+            label: "Vista previa"
+            compact: true
+            enabled: model.count > 0 && !root.loading
+            opacity: enabled ? 1 : 0.5
+            onClicked: root.togglePreview()
+          }
+          Label {
+            Layout.maximumWidth: card.width * 0.66
+            text: (root.typingFilter ? "Ctrl+Espacio" : "Espacio") + "  Vista previa     ↵  Aplicar     Esc  Cerrar"
+            color: root.secondary
+            font.pixelSize: Style.font.bodySmall
+            elide: Text.ElideRight
+          }
+        }
+      }
 
-            Text {
-              textFormat: Text.PlainText
-              text: "Enter apply · Esc/X close · Ctrl+F favorite · Ctrl+R random · Del stop"
-              color: root.muted
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
+      Loader {
+        anchors.fill: parent
+        anchors.margins: Style.space(24)
+        active: root.opened && root.previewOpen && model.count > 0
+
+        sourceComponent: ColumnLayout {
+          id: previewPage
+          property string failedVideo: ""
+          property string clipPath: ""
+          property string requestedScene: ""
+          property bool clipFailed: false
+          readonly property string sceneId: wallpaper && wallpaper.type === "scene"
+                                            && !wallpaper.video && !animated && imagePath
+                                            ? wallpaper.wid : ""
+          readonly property string videoPath: wallpaper
+                                              ? (wallpaper.video || (requestedScene === sceneId ? clipPath : ""))
+                                              : ""
+          readonly property bool hasVideoPreview: videoPath !== "" && videoPath !== failedVideo
+          readonly property var wallpaper: model.count > root.selectedIndex
+                                          ? model.get(root.selectedIndex) : null
+          readonly property string imagePath: wallpaper ? (wallpaper.previewIsVideo ? wallpaper.thumb : wallpaper.preview) : ""
+          readonly property url media: imagePath ? Util.fileUrl(imagePath) : ""
+          readonly property bool animated: wallpaper && /\.gif$/i.test(wallpaper.preview)
+          spacing: Style.space(14)
+
+          function queueClip() {
+            clipPath = ""
+            clipFailed = false
+            clipProcess.running = false
+            clipDelay.stop()
+            if (sceneId) clipDelay.start()
+          }
+
+          onSceneIdChanged: Qt.callLater(queueClip)
+
+          Timer {
+            id: clipDelay
+            interval: 250
+            onTriggered: {
+              if (!previewPage.sceneId) return
+              if (clipProcess.processId) {
+                restart()
+                return
+              }
+              previewPage.requestedScene = previewPage.sceneId
+              clipProcess.command = ["bash", root.pluginDir + "/we-scene-clip", previewPage.sceneId]
+              clipProcess.running = true
+            }
+          }
+
+          Process {
+            id: clipProcess
+            stdout: StdioCollector {
+              onStreamFinished: {
+                if (previewPage.requestedScene === previewPage.sceneId)
+                  previewPage.clipPath = text.trim()
+              }
+            }
+            onExited: exitCode => {
+              if (exitCode !== 0 && previewPage.requestedScene === previewPage.sceneId)
+                previewPage.clipFailed = true
+            }
+          }
+
+          RowLayout {
+            Layout.fillWidth: true
+            spacing: Style.space(8)
+
+            Action {
+              label: "‹ Galería"
+              onClicked: root.previewOpen = false
+            }
+
+            Label {
+              Layout.fillWidth: true
+              text: wallpaper ? wallpaper.title : ""
+              font.weight: Font.DemiBold
+              font.pixelSize: Style.font.heading
+              horizontalAlignment: Text.AlignHCenter
+              wrapMode: Text.Wrap
+              maximumLineCount: 2
               elide: Text.ElideRight
             }
 
-            Text {
-              anchors.right: parent.right
-              textFormat: Text.PlainText
-              text: root.notice
-              color: root.selectedText
-              font.family: root.fontFamily
+            Action {
+              label: "Aplicar"
+              active: true
+              onClicked: root.applyIndex(root.selectedIndex)
+            }
+          }
+
+          Rectangle {
+            id: previewStage
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            radius: Style.space(10)
+            color: root.surface
+            clip: true
+
+            Loader {
+              id: previewMedia
+              anchors.fill: parent
+              anchors.margins: Style.space(8)
+              sourceComponent: hasVideoPreview ? videoPreview : animated ? animatedPreview : staticPreview
+            }
+
+            Component {
+              id: videoPreview
+
+              Item {
+                readonly property int status: player.mediaStatus === Multimedia.MediaPlayer.LoadedMedia
+                                              || player.mediaStatus === Multimedia.MediaPlayer.BufferingMedia
+                                              || player.mediaStatus === Multimedia.MediaPlayer.BufferedMedia
+                                              ? Image.Ready : Image.Loading
+
+                Multimedia.MediaPlayer {
+                  id: player
+                  source: Util.fileUrl(previewPage.videoPath)
+                  loops: Multimedia.MediaPlayer.Infinite
+                  autoPlay: true
+                  videoOutput: output
+                  onErrorOccurred: previewPage.failedVideo = previewPage.videoPath
+                }
+
+                Multimedia.VideoOutput {
+                  id: output
+                  anchors.fill: parent
+                  fillMode: Multimedia.VideoOutput.PreserveAspectFit
+                }
+              }
+            }
+
+            Component {
+              id: animatedPreview
+              AnimatedImage {
+                source: media
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+                playing: root.opened && root.previewOpen
+                cache: false
+              }
+            }
+
+            Component {
+              id: staticPreview
+              Image {
+                source: media
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+              }
+            }
+
+            Label {
+              anchors.centerIn: parent
+              visible: !previewMedia.item || previewMedia.item.status !== Image.Ready
+              text: previewMedia.item && previewMedia.item.status === Image.Loading
+                    ? "Cargando vista previa…" : "Sin vista previa"
+              color: root.secondary
+            }
+          }
+
+          RowLayout {
+            Layout.fillWidth: true
+            spacing: Style.space(8)
+
+            Action {
+              compact: true
+              label: "‹ Anterior"
+              enabled: root.selectedIndex > 0
+              opacity: enabled ? 1 : 0.5
+              onClicked: root.move(-1)
+            }
+            Action {
+              compact: true
+              label: "Siguiente ›"
+              enabled: root.selectedIndex < model.count - 1
+              opacity: enabled ? 1 : 0.5
+              onClicked: root.move(1)
+            }
+            Label {
+              Layout.fillWidth: true
+              text: (root.selectedIndex + 1) + " / " + model.count
+                    + (hasVideoPreview || animated || !imagePath ? ""
+                       : sceneId && !clipFailed && !clipPath ? " · Preparando animación…"
+                       : " · Vista previa estática")
+              color: root.secondary
               font.pixelSize: Style.font.bodySmall
+            }
+            Label {
+              Layout.maximumWidth: card.width * 0.5
+              text: "←→  Comparar     ↵  Aplicar     Esc  Volver"
+              color: root.secondary
+              font.pixelSize: Style.font.bodySmall
+              elide: Text.ElideRight
             }
           }
         }
